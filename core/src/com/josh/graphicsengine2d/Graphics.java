@@ -114,7 +114,7 @@ public class Graphics
 	
 	public void drawImage(Image image, float x, float y)
 	{
-		drawImage(image, x, y);
+		drawImage(image, x, y, 1.0f);
 	}
 	
 	public void drawImage(Image image, float x, float y, float alpha)
@@ -161,8 +161,8 @@ public class Graphics
 		float w = Gdx.graphics.getWidth();
 		float h = Gdx.graphics.getHeight();
 		
-		camera = new OrthographicCamera(1920, 1080);
-		camera.setToOrtho(true, 1920, 1080);
+		camera = new OrthographicCamera(w, h);
+		camera.setToOrtho(true, w, h);
 		camera.update();
 		
 		batch = new SpriteBatch();

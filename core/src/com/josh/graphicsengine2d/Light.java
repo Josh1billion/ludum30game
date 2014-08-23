@@ -22,6 +22,9 @@ public class Light
 		this.y = y;
 	}
 	
+	public float getX() { return x; }
+	public float getY() { return y; }
+	
 	public void setColor(float red0to255, float green0to255, float blue0to255)
 	{
 		this.red = red0to255 / 255.0f;
