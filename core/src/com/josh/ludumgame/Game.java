@@ -4,37 +4,59 @@ import java.util.ArrayList;
 
 import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.Input.Keys;
+import com.badlogic.gdx.audio.Sound;
+import com.badlogic.gdx.math.Intersector;
+import com.badlogic.gdx.math.Rectangle;
 import com.josh.graphicsengine2d.*;
 import com.josh.graphicsengine2d.Light.LightType;
 
 public class Game
 {
-	public static int SCREEN_WIDTH = 800;
+	public static int SCREEN_WIDTH = 768;
 	public static int SCREEN_HEIGHT = 576;
+	
+	// IMPORTANT NOTE: when exporting as a runnable jar, first do a find-and-replace to replace "assets/" (without quotes) to nothing.  this is because the assets get packaged outside of the
+	// assets folder.
 
 	// images
 	private ArrayList<Image> tileImagesSolid; // images for tiles that the player can't walk across
 	private ArrayList<Image> tileImagesWalkable; // images for tiles that the player can walk across
 	private Image exitImage = new Image("assets/tiles/exit.png"); // walking on this tile leads to the next randomly-generated map
 	private Image heroImage = new Image("assets/sprites/hero.png"); // just a single frame for now...
+	private Image nextWorldImage = new Image("assets/next_world.png");
+	private Image titleScreenImage = new Image("assets/titlescreen.png");
+	private Image gameOverImage = new Image("assets/game_over.png");
+	private Image ghostImages[];
+	
+	// sounds
+	Sound winSound = Gdx.audio.newSound(Gdx.files.internal("assets/sounds/win.wav"));
+	Sound loseSound = Gdx.audio.newSound(Gdx.files.internal("assets/sounds/lose.wav"));
+	Sound startSound = Gdx.audio.newSound(Gdx.files.internal("assets/sounds/start.wav"));
+	Sound musicSound = Gdx.audio.newSound(Gdx.files.internal("assets/sounds/music.mp3"));
 	
 	int exitX = 0;
 	int exitY = 0;
 
-	int heroX = 0; // pixel coordinates instead of tile coordinates, unlike everything else... should have thought this through a little better.
-	int heroY = 0;
+	float heroX = 200; // pixel coordinates instead of tile coordinates, unlike everything else... should have thought this through a little better.
+	float heroY = 200;
 	
-	private Tile[][] tiles; // the current map, made up of randomly generated tiles
+	public Tile[][] tiles; // the current map, made up of randomly generated tiles
 	private Light[] lights;
 	private Light heroLight; // a little torch held by the player
+	private Ghost[] ghosts;
+	private int ghostCount = 3;
 
 	private int scrollX = 0; // not actually used, since there is no scrolling, but this is required by my still-poorly-written graphics engine
 	private int scrollY = 0;
 	public Graphics g;
 	
-	int mapWidth = 25;
-	int mapHeight = 18;
+	int mapWidth = 12;
+	int mapHeight = 9;
 	
+	boolean transitioningToNextLevel = false;
+	float transitionCountdown = 3.0f;
+	boolean gameOver = false;
+	boolean titleScreen = true;
 	
 	public int getScrollX() { return scrollX; } 
 	public int getScrollY() { return scrollY; }
@@ -46,12 +68,28 @@ public class Game
 		// load all of the tile images
 		tileImagesSolid = new ArrayList<Image>();
 		tileImagesWalkable = new ArrayList<Image>();
-		tileImagesSolid.add(new Image("assets/tiles/solid/1.png"));
-		tileImagesSolid.add(new Image("assets/tiles/solid/2.png"));
-		tileImagesWalkable.add(new Image("assets/tiles/walkable/1.png"));
-		tileImagesWalkable.add(new Image("assets/tiles/walkable/2.png"));
 		
-		generateMap();
+		int tileStyleCount = 5;
+		
+		for (int i = 1; i <= tileStyleCount; i++)
+		{
+			tileImagesSolid.add(new Image("assets/tiles/solid/" + i + ".png"));
+			tileImagesWalkable.add(new Image("assets/tiles/walkable/" + i + ".png"));
+		}
+		
+		// ghost images
+		ghostImages = new Image[5];
+		ghostImages[0] = new Image("assets/sprites/ghost1.png");
+		ghostImages[1] = new Image("assets/sprites/ghost2.png");
+		ghostImages[2] = new Image("assets/sprites/ghost3.png");
+		ghostImages[3] = new Image("assets/sprites/ghost4.png");
+		ghostImages[4] = new Image("assets/sprites/ghost5.png");
+
+		// start playing the music
+		musicSound.loop();
+		
+		// initialize a random map to display on the title screen
+		generateMap(3);
 	}
 	
 	private boolean tileIsSolid(int x, int y)
@@ -80,8 +118,10 @@ public class Game
 		return result;
 	}
 	
-	private void generateMap()
+	private void generateMap(int ghostCount)
 	{
+		
+		this.ghostCount = ghostCount;
 
 		// first, remove any existing lights from a previous map, and give the player a torch light...
 		try
@@ -100,6 +140,16 @@ public class Game
 		{
 			// TODO Auto-generated catch block
 			e.printStackTrace();
+		}
+		
+		// generate ghosts
+		ghosts = new Ghost[ghostCount];
+		for (int i = 0; i < ghostCount; i++)
+		{
+			ghosts[i] = new Ghost();
+			ghosts[i].x = (float)Math.random() * 500;
+			ghosts[i].y = (float)Math.random() * 500;
+			ghosts[i].image = ghostImages[(int)(Math.random() * ghostImages.length)];
 		}
 
 		// generate some lights
@@ -123,7 +173,7 @@ public class Game
 		}
 
 		// randomly generate some tiles... this might be less random later on..
-		int style = (int)Math.floor(Math.random()*2);
+		int style = (int)Math.floor(Math.random() * tileImagesSolid.size());
 		
 		tiles = new Tile[mapWidth][mapHeight];
 		for (int i = 0; i < 2; i++) // do two iterations, so tiles can more accurately gauge whether a tile next to them is solid
@@ -171,6 +221,15 @@ public class Game
 			exitY = (int)(Math.floor(Math.random() * mapHeight));
 		}
 		tiles[exitX][exitY] = new Tile(tiles[exitX][exitY].getImage(), true, false, exitX, exitY);
+
+		heroX = (int)(Math.random()* 500);
+		heroY = (int)(Math.random()* 500);
+		while (collidingWithExit() || playerIsTouchingASolidTile() || playerIsTouchingAGhost())
+		{
+			heroX = (int)(Math.random()* 500);
+			heroY = (int)(Math.random()* 500);
+		}
+			
 			
 	}
 
@@ -182,26 +241,91 @@ public class Game
 		if (Input.keys[Keys.ESCAPE] == 1)
 			Gdx.app.exit();
 		
-		movePlayer(delta);
+		if (transitioningToNextLevel)
+		{
+			transitionCountdown -= delta;
+			if (transitionCountdown <= 0.0f)
+			{
+				transitioningToNextLevel = false;
+				generateMap(this.ghostCount + 1);
+				Gdx.graphics.setTitle("Ghostly Worlds - World #" + (this.ghostCount - 2));
+				g.setZoom(1.0f);
+			}
+			else
+				g.setZoom(1.0f + 0.3f*(3.0f - transitionCountdown));
+		}
+		else if (gameOver || titleScreen)
+		{
+			if (Input.keys[Keys.SPACE] == 1)
+			{
+				gameOver = false;
+				titleScreen = false;
+				Gdx.graphics.setTitle("Ghostly Worlds - World #1");
+				generateMap(3);
+				startSound.play();
+			}
+			else if (titleScreen)
+			{ // randomly move the invisible player, so that the ghosts have something to chase 
+				heroVelX += -100 + (Math.random() * 200);
+				heroVelY += -100 + (Math.random() * 200);
+				heroX += heroVelX;
+				heroY += heroVelY;
+			}
+				
+		}
+		else
+		{ // normal gameplay
+			movePlayer(delta);
+			if (playerIsTouchingAGhost())
+			{
+				gameOver = true;
+				loseSound.play();
+			}
+		}
+		
+		for (int i = 0; i < this.ghostCount; i++)
+			ghosts[i].tick(delta);
+		
 		moveLightsAround(delta);
 	}
 	
 	public void draw()
 	{
-		g.setAmbientLight(128, 128, 128);
+		g.setAmbientLight(64, 64, 128);
 		
 		// draw the tiles of the map
 		for (int x = 0; x < mapWidth; x += 1)
 			for (int y = 0; y < mapHeight; y += 1)
 			{
-				g.drawImage(tiles[x][y].getImage(), x*32, y*32, 1.0f);
+				g.drawImage(tiles[x][y].getImage(), x*64, y*64, 1.0f);
 				if (tiles[x][y].isExit())
-					g.drawImage(exitImage, x*32, y*32, 1.0f);
+					g.drawImage(exitImage, x*64, y*64, 1.0f);
 					
 			}
 		
 		// draw the hero
-		g.drawImage(heroImage, heroX, heroY, 1.0f);
+		if (!titleScreen)
+			g.drawImage(heroImage, heroX, heroY, 1.0f);
+		
+		// draw the ghosts
+		for (int i = 0; i < this.ghostCount; i++)
+			g.drawImage(ghosts[i].image, ghosts[i].x, ghosts[i].y, 1.0f);
+		
+		// draw Next World splash
+		if (transitioningToNextLevel)
+			g.drawImage(nextWorldImage, 234, 0, 1.0f, 1.0f - (transitionCountdown/10.0f), 1.0f + 2.0f*(3.0f - transitionCountdown));
+		
+		// draw Game Over splash
+		if (gameOver)
+			g.drawImage(gameOverImage, 70, 120, 1.0f, 2.0f, 2.0f);
+		
+		// draw title screen overlay
+		if (titleScreen)
+			g.drawImage(titleScreenImage, 0, 0, 1.0f);
+		
+		// draw level indicator
+		if (!titleScreen)
+			g.drawString("Hello world", 100, 100);
 	}
 	
 	float lightVelX[] = new float[5];
@@ -239,6 +363,13 @@ public class Game
 	
 	private void movePlayer(float delta)
 	{
+		if (collidingWithExit())
+		{
+			transitioningToNextLevel = true;
+			transitionCountdown = 3.0f;
+			winSound.play();
+			return;
+		}
 
 		float heroAccelerationRate = 800.0f; // 800 pixels per second^2
 		float maxVel = 200.0f;
@@ -292,9 +423,120 @@ public class Game
 		if (heroVelY < -maxVel)
 			heroVelY = -maxVel;
 		
+		float heroDestX = heroX + heroVelX * delta;
+		float heroDestY = heroY + heroVelY * delta;
+		
+		// some buggy stuff right here...!  trying to handle collisions with solid tiles and the edges of the map
+		boolean hCovered = false;
+		boolean vCovered = false;
+		
+		if (heroDestX < 0)
+		{
+			hCovered = true;
+			heroVelX *= -1;
+		}
+		else if (heroDestX + 32 > mapWidth * 64)
+		{
+			hCovered = true;
+			heroVelX *= -1;
+		}
+		if (heroDestY < 0)
+		{
+			vCovered = true;
+			heroVelY *= -1;
+		}
+		else if (heroDestY + 32 > mapHeight * 64)
+		{
+			vCovered = true;
+			heroVelY *= -1;
+		}
+		
+		for (int tileX = 0; tileX < mapWidth; tileX++)
+			for (int tileY = 0; tileY < mapHeight; tileY++)
+			{
+				Tile tile = tiles[tileX][tileY];
+				if (tile.isSolid())
+				{
+					Rectangle r1 = new Rectangle(heroDestX, heroDestY, 32, 32);
+					Rectangle r2 = new Rectangle(tileX * 64, tileY * 64, 64, 64);
+					int collisionType = getCollision(r1, r2);
+					if (collisionType == COLLISION_LEFT || collisionType == COLLISION_RIGHT)
+						if (!hCovered)
+						{
+							heroVelX *= -1;
+							hCovered = true;
+						}
+					if (collisionType == COLLISION_TOP || collisionType == COLLISION_BOTTOM)
+						if (!vCovered)
+						{
+							heroVelY *= -1;
+							vCovered = true;
+						}
+				}
+			}
+		
 		heroX += heroVelX * delta;
 		heroY += heroVelY * delta;
 		
 		heroLight.setPosition(heroX + 16, heroY + 16);
 	}
+	
+	public int COLLISION_NONE = 0;
+	public int COLLISION_RIGHT = 1;
+	public int COLLISION_LEFT = 2;
+	public int COLLISION_TOP = 3;
+	public int COLLISION_BOTTOM = 4;
+	
+	public int getCollision(Rectangle r1, Rectangle r2)
+	{
+		Rectangle intersection = new Rectangle();
+		Intersector.intersectRectangles(r1,  r2,  intersection);
+		if (intersection.width == 0 || intersection.height == 0)
+			return COLLISION_NONE;
+		if (intersection.x > r1.x)
+			return COLLISION_RIGHT;
+		if (intersection.y > r1.y)
+			return COLLISION_BOTTOM;
+		if (intersection.x + intersection.width < r1.x + r1.width)
+			return COLLISION_LEFT;
+		if (intersection.y + intersection.height < r1.y + r1.height)
+			return COLLISION_TOP;
+		
+		return COLLISION_NONE;
+	}
+	
+	private boolean collidingWithExit()
+	{
+		Rectangle r1 = new Rectangle(heroX, heroY, 32, 32);
+		Rectangle r2 = new Rectangle(exitX * 64 + 36, exitY * 64 + 36, 12, 12);
+		return (getCollision(r1, r2) != COLLISION_NONE);
+	}
+	
+	private boolean playerIsTouchingASolidTile()
+	{
+		for (int x = 0; x < mapWidth; x++)
+			for (int y = 0; y < mapHeight; y++)
+				if (tiles[x][y].isSolid())
+				{
+					Rectangle r1 = new Rectangle(heroX, heroY, 32, 32);
+					Rectangle r2 = new Rectangle(x * 64, y * 64, 64, 64);
+						if (getCollision(r1, r2) != COLLISION_NONE)
+							return true;
+				}
+		return false;
+	}
+	
+	private boolean playerIsTouchingAGhost()
+	{
+		for (int i = 0; i < this.ghostCount; i++)
+		{
+			Rectangle r1 = new Rectangle(heroX, heroY, 32, 32);
+			Rectangle r2 = new Rectangle(ghosts[i].x, ghosts[i].y, 32, 32);
+			if (getCollision(r1, r2) != COLLISION_NONE)
+				return true;
+		}
+		return false;
+	}
+	
+	
 }
